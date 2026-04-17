@@ -1,0 +1,63 @@
+name: Sync Course Roster
+
+on:
+  workflow_dispatch:
+    inputs:
+      semester:
+        description: "Semester code (e.g. f2026)"
+        required: true
+      dry_run:
+        description: "Preview only, don't modify teams"
+        required: false
+        default: false
+        type: boolean
+  schedule:
+    - cron: "0 6 * * 1"  # Weekly Monday 06:00 UTC
+
+jobs:
+  check-team:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify triggering user is in faculty or admin team
+        env:
+          GH_TOKEN: ${{ secrets.DSL_BOT_TOKEN }}
+          ACTOR: ${{ github.actor }}
+        run: |
+          MAIN_ORG="hertie-data-science-lab"
+          for team in faculty admin; do
+            code=$(gh api "orgs/$MAIN_ORG/teams/$team/memberships/$ACTOR" \
+                     --jq '.state' 2>/dev/null || true)
+            if [ "$code" = "active" ]; then exit 0; fi
+          done
+          echo "::error::$ACTOR is not in the faculty or admin team — access denied"
+          exit 1
+
+  sync:
+    needs:
+      - check-team
+    if: always() && (needs.check-team.result == 'success' || github.event_name == 'schedule')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: hertie-data-science-lab/gh-org-strategy
+          token: ${{ secrets.DSL_BOT_TOKEN }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install pyyaml
+
+      - name: Sync roster
+        env:
+          GH_TOKEN: ${{ secrets.DSL_BOT_TOKEN }}
+          ORG: ${{ github.repository_owner }}
+          SEMESTER: ${{ inputs.semester }}
+          DRY_RUN: ${{ inputs.dry_run }}
+        run: |
+          args=(--org "$ORG" --semester "$SEMESTER")
+          if [ "$DRY_RUN" = "true" ]; then args+=(--dry-run); fi
+          python3 -m dsl_course.sync_roster "${args[@]}"
