@@ -8,8 +8,8 @@ on:
         required: true
         type: choice
         options:
-          - preview-1-red
           - preview-2-dark
+          - preview-1-red
           - hertie-school-example-course.github.io
           - content-f2025
       cohort_org:
